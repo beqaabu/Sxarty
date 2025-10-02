@@ -7,10 +7,48 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 fn split_words(content: &str) -> Vec<String> {
-    content
-        .split_whitespace()
-        .map(|w| w.to_string())
-        .collect()
+    // Dashes often appear surrounded by spaces; attach them to the previous token.
+    const DASHES: &[char] = &['—', '–', '-'];
+    // Opening punctuation sticks to the next token.
+    const OPENERS: &[char] = &['(', '[', '{', '“', '‘', '«'];
+
+    let mut out: Vec<String> = Vec::new();
+    let mut pending_prefix = String::new();
+
+    for raw in content.split_whitespace() {
+        // If the token is ONLY dashes (e.g., "—", "–", or "-"), attach to the previous token
+        if raw.chars().all(|c| DASHES.contains(&c)) {
+            if let Some(last) = out.last_mut() {
+                last.push_str(raw); // attach to previous word (e.g., "star—")
+            } else {
+                // At start: remember as a prefix for the next real token
+                pending_prefix.push_str(raw);
+            }
+            continue;
+        }
+
+        // If the token is a single opener like "(" with spaces around, prefix it to the next token
+        if raw.chars().count() == 1 {
+            let ch = raw.chars().next().unwrap();
+            if OPENERS.contains(&ch) {
+                pending_prefix.push(ch);
+                continue;
+            }
+        }
+
+        // Normal token: apply any pending prefix and push
+        if !pending_prefix.is_empty() {
+            let mut s = pending_prefix.clone();
+            s.push_str(raw);
+            out.push(s);
+            pending_prefix.clear();
+        } else {
+            out.push(raw.to_string());
+        }
+    }
+
+    // Drop any dangling prefix to avoid showing lone punctuation.
+    out
 }
 
 #[derive(Debug)]
@@ -20,6 +58,10 @@ struct SpeedReader {
     playing: bool,
     wpm: f32,         // words per minute
     font_size: f32,   // point size
+    // Text inputs for precise entry
+    wpm_input: String,
+    font_input: String,
+    // Color components (0.0-1.0)
     color_r: f32,
     color_g: f32,
     color_b: f32,
@@ -36,8 +78,15 @@ enum Message {
     Next,
     Prev,
     Restart,
+    // Sliders
     WpmChanged(f32),
     FontSizeChanged(f32),
+    // Text inputs
+    WpmTextChanged(String),
+    WpmTextSubmit,
+    FontTextChanged(String),
+    FontTextSubmit,
+    // Color sliders (0-255)
     ColorR255Changed(u16),
     ColorG255Changed(u16),
     ColorB255Changed(u16),
@@ -58,6 +107,8 @@ impl Application for SpeedReader {
                 playing: false,
                 wpm: 300.0,
                 font_size: 64.0,
+                wpm_input: "300".to_string(),
+                font_input: "64".to_string(),
                 color_r: 1.0,
                 color_g: 1.0,
                 color_b: 1.0,
@@ -137,10 +188,50 @@ impl Application for SpeedReader {
                 self.playing = false;
             }
             Message::WpmChanged(v) => {
-                self.wpm = v.max(1.0);
+                let v = v.clamp(50.0, 1200.0);
+                self.wpm = v;
+                self.wpm_input = (v.round() as u32).to_string();
             }
             Message::FontSizeChanged(v) => {
-                self.font_size = v.max(8.0);
+                let v = v.clamp(16.0, 128.0);
+                self.font_size = v;
+                self.font_input = (v.round() as u32).to_string();
+            }
+            Message::WpmTextChanged(s) => {
+                // Keep only digits, allow empty while typing
+                let filtered: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+                self.wpm_input = filtered.clone();
+                if let Ok(val) = filtered.parse::<u32>() {
+                    let clamped = val.clamp(50, 1200) as f32;
+                    self.wpm = clamped;
+                }
+            }
+            Message::WpmTextSubmit => {
+                if let Ok(val) = self.wpm_input.parse::<u32>() {
+                    let clamped = val.clamp(50, 1200) as f32;
+                    self.wpm = clamped;
+                    self.wpm_input = (clamped.round() as u32).to_string();
+                } else {
+                    // Reset to current numeric value
+                    self.wpm_input = (self.wpm.round() as u32).to_string();
+                }
+            }
+            Message::FontTextChanged(s) => {
+                let filtered: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+                self.font_input = filtered.clone();
+                if let Ok(val) = filtered.parse::<u32>() {
+                    let clamped = val.clamp(16, 128) as f32;
+                    self.font_size = clamped;
+                }
+            }
+            Message::FontTextSubmit => {
+                if let Ok(val) = self.font_input.parse::<u32>() {
+                    let clamped = val.clamp(16, 128) as f32;
+                    self.font_size = clamped;
+                    self.font_input = (clamped.round() as u32).to_string();
+                } else {
+                    self.font_input = (self.font_size.round() as u32).to_string();
+                }
             }
             Message::ColorR255Changed(v) => self.color_r = (v.min(255) as f32) / 255.0,
             Message::ColorG255Changed(v) => self.color_g = (v.min(255) as f32) / 255.0,
@@ -200,13 +291,23 @@ impl Application for SpeedReader {
         let controls = row![
             button("Open .txt").on_press(Message::OpenFile),
             button(if self.playing { "Pause" } else { "Play" }).on_press(Message::TogglePlayPressed),
-            button("⟲ Restart").on_press(Message::Restart),
+            button("↻ Restart").on_press(Message::Restart),
             button("← Prev").on_press(Message::Prev),
             button("Next →").on_press(Message::Next),
-            text(format!("Speed: {} WPM", self.wpm as u32)),
+            // WPM controls
+            text("Speed:"),
             slider(50.0..=1200.0, self.wpm, Message::WpmChanged).width(Length::Fixed(200.0)),
-            text(format!("Font: {}", self.font_size as u32)),
+            iced::widget::TextInput::new("WPM", &self.wpm_input)
+                .on_input(Message::WpmTextChanged)
+                .on_submit(Message::WpmTextSubmit)
+                .width(Length::Fixed(80.0)),
+            // Font size controls
+            text("Font:"),
             slider(16.0..=128.0, self.font_size, Message::FontSizeChanged).width(Length::Fixed(160.0)),
+            iced::widget::TextInput::new("px", &self.font_input)
+                .on_input(Message::FontTextChanged)
+                .on_submit(Message::FontTextSubmit)
+                .width(Length::Fixed(80.0)),
         ]
         .align_items(Alignment::Center)
         .spacing(10);
