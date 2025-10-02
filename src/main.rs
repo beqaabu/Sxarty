@@ -1,9 +1,12 @@
+use iced::Alignment;
+use iced::alignment;
 use iced::{
-    executor, time, Application, Color, Command, Element, Event, Length, Settings, Subscription, Theme,
+    Application, Color, Command, Element, Event, Length, Settings, Subscription, Theme, executor,
+    time,
     widget::{button, column, container, row, slider, text},
 };
-use iced::Alignment;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command as PCommand;
 use std::time::Duration;
 
 fn split_words(content: &str) -> Vec<String> {
@@ -56,8 +59,8 @@ struct SpeedReader {
     words: Vec<String>,
     index: usize,
     playing: bool,
-    wpm: f32,         // words per minute
-    font_size: f32,   // point size
+    wpm: f32,       // words per minute
+    font_size: f32, // point size
     // Text inputs for precise entry
     wpm_input: String,
     font_input: String,
@@ -128,22 +131,51 @@ impl Application for SpeedReader {
                 return Command::perform(
                     async {
                         rfd::FileDialog::new()
-                            .add_filter("Text", &["txt"]).pick_file()
+                            .add_filter("Documents", &["txt", "pdf", "docx", "epub"])
+                            .pick_file()
                     },
                     Message::FilePicked,
-                )
+                );
             }
             Message::FilePicked(path_opt) => {
                 if let Some(path) = path_opt {
                     return Command::perform(
                         async move {
                             let path_clone = path.clone();
-                            match std::fs::read_to_string(&path) {
-                                Ok(content) => {
-                                    let words = split_words(&content);
-                                    Ok((path_clone, words))
+                            let words_res: Result<Vec<String>, String> = match path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .map(|s| s.to_lowercase())
+                            {
+                                Some(ext) if ext == "txt" => match std::fs::read_to_string(&path) {
+                                    Ok(content) => Ok(split_words(&content)),
+                                    Err(e) => Err(format!("Failed to read text file: {e}")),
+                                },
+                                Some(ext) if ext == "pdf" => match extract_pdf_text(&path) {
+                                    Ok(content) => Ok(split_words(&content)),
+                                    Err(e) => Err(e),
+                                },
+                                Some(ext) if ext == "docx" => {
+                                    match extract_with_pandoc(&path, "docx") {
+                                        Ok(content) => Ok(split_words(&content)),
+                                        Err(e) => Err(e),
+                                    }
                                 }
-                                Err(e) => Err(format!("Failed to read file: {e}")),
+                                Some(ext) if ext == "epub" => {
+                                    match extract_with_pandoc(&path, "epub") {
+                                        Ok(content) => Ok(split_words(&content)),
+                                        Err(e) => Err(e),
+                                    }
+                                }
+                                Some(other) => {
+                                    Err(format!("Unsupported file extension: .{}", other))
+                                }
+                                None => Err("Could not determine file extension".to_string()),
+                            };
+
+                            match words_res {
+                                Ok(words) => Ok((path_clone, words)),
+                                Err(err) => Err(err),
                             }
                         },
                         Message::FileLoaded,
@@ -237,22 +269,29 @@ impl Application for SpeedReader {
             Message::ColorG255Changed(v) => self.color_g = (v.min(255) as f32) / 255.0,
             Message::ColorB255Changed(v) => self.color_b = (v.min(255) as f32) / 255.0,
             Message::EventOccurred(Event::Keyboard(key_event)) => {
-                use iced::keyboard::{Event as KeyEvent, Key};
                 use iced::keyboard::key::Named;
+                use iced::keyboard::{Event as KeyEvent, Key};
 
                 match key_event {
                     KeyEvent::KeyPressed { key, .. } => match key {
                         Key::Named(Named::ArrowLeft) => {
-                            if self.index > 0 { self.index -= 1; }
+                            if self.index > 0 {
+                                self.index -= 1;
+                            }
                         }
                         Key::Named(Named::ArrowRight) => {
-                            if self.index + 1 < self.words.len() { self.index += 1; }
+                            if self.index + 1 < self.words.len() {
+                                self.index += 1;
+                            }
                         }
                         Key::Named(Named::Space) => {
-                            if !self.words.is_empty() { self.playing = !self.playing; }
+                            if !self.words.is_empty() {
+                                self.playing = !self.playing;
+                            }
                         }
                         Key::Named(Named::Home) => {
-                            self.index = 0; self.playing = false;
+                            self.index = 0;
+                            self.playing = false;
                         }
                         _ => {}
                     },
@@ -266,9 +305,8 @@ impl Application for SpeedReader {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subs: Vec<Subscription<Message>> = vec![
-            iced::event::listen().map(Message::EventOccurred),
-        ];
+        let mut subs: Vec<Subscription<Message>> =
+            vec![iced::event::listen().map(Message::EventOccurred)];
 
         if self.playing && !self.words.is_empty() {
             let interval_ms = (60_000.0 / self.wpm) as u64;
@@ -282,15 +320,22 @@ impl Application for SpeedReader {
         let title = if let Some(path) = &self.current_file {
             format!(
                 "File: {}",
-                path.file_name().and_then(|s| s.to_str()).unwrap_or_default()
+                path.file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
             )
         } else {
             "No file loaded".to_string()
         };
 
         let controls = row![
-            button("Open .txt").on_press(Message::OpenFile),
-            button(if self.playing { "Pause" } else { "Play" }).on_press(Message::TogglePlayPressed),
+            button("Open file").on_press(Message::OpenFile),
+            button(
+                text(if self.playing { "Pause" } else { "Play" })
+                    .horizontal_alignment(alignment::Horizontal::Center) // old API
+            )
+            .width(Length::Fixed(60.0))
+            .on_press(Message::TogglePlayPressed),
             button("↻ Restart").on_press(Message::Restart),
             button("← Prev").on_press(Message::Prev),
             button("Next →").on_press(Message::Next),
@@ -303,7 +348,8 @@ impl Application for SpeedReader {
                 .width(Length::Fixed(80.0)),
             // Font size controls
             text("Font:"),
-            slider(16.0..=128.0, self.font_size, Message::FontSizeChanged).width(Length::Fixed(160.0)),
+            slider(16.0..=128.0, self.font_size, Message::FontSizeChanged)
+                .width(Length::Fixed(160.0)),
             iced::widget::TextInput::new("px", &self.font_input)
                 .on_input(Message::FontTextChanged)
                 .on_submit(Message::FontTextSubmit)
@@ -318,15 +364,18 @@ impl Application for SpeedReader {
 
         let color_controls = row![
             text("R"),
-            slider(0u16..=255u16, r255, Message::ColorR255Changed).width(Length::Fixed(180.0)).step(1u16),
+            slider(0u16..=255u16, r255, Message::ColorR255Changed)
+                .width(Length::Fixed(180.0))
+                .step(1u16),
             text("G"),
-            slider(0u16..=255u16, g255, Message::ColorG255Changed).width(Length::Fixed(180.0)).step(1u16),
+            slider(0u16..=255u16, g255, Message::ColorG255Changed)
+                .width(Length::Fixed(180.0))
+                .step(1u16),
             text("B"),
-            slider(0u16..=255u16, b255, Message::ColorB255Changed).width(Length::Fixed(180.0)).step(1u16),
-            text(format!(
-                "RGB: {} {} {}",
-                r255, g255, b255
-            )),
+            slider(0u16..=255u16, b255, Message::ColorB255Changed)
+                .width(Length::Fixed(180.0))
+                .step(1u16),
+            text(format!("RGB: {} {} {}", r255, g255, b255)),
         ]
         .spacing(8)
         .align_items(Alignment::Center);
@@ -338,9 +387,7 @@ impl Application for SpeedReader {
             .unwrap_or("Load a file to start");
 
         let color = Color::from_rgb(self.color_r, self.color_g, self.color_b);
-        let display_text = text(word)
-            .size(self.font_size as u16)
-            .style(color);
+        let display_text = text(word).size(self.font_size as u16).style(color);
 
         let content = column![
             text(title),
@@ -364,7 +411,57 @@ impl Application for SpeedReader {
             .into()
     }
 
-    fn theme(&self) -> Theme { Theme::Dark }
+    fn theme(&self) -> Theme {
+        Theme::Dark
+    }
+}
+
+fn extract_pdf_text(path: &Path) -> Result<String, String> {
+    // Use `pdftotext` from poppler-utils to extract text.
+    // On Ubuntu/Debian: sudo apt-get install poppler-utils
+    let output = PCommand::new("pdftotext")
+        .arg("-layout")
+        .arg("-nopgbrk")
+        .arg(path)
+        .arg("-") // write to stdout
+        .output()
+        .map_err(|e| {
+            format!("Failed to run 'pdftotext'. Is poppler-utils installed? Error: {e}")
+        })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "pdftotext failed with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    Ok(text)
+}
+
+fn extract_with_pandoc(path: &Path, from: &str) -> Result<String, String> {
+    // Use `pandoc` to convert documents to plain text.
+    // On Ubuntu/Debian: sudo apt-get install pandoc
+    let output = PCommand::new("pandoc")
+        .arg("-f")
+        .arg(from)
+        .arg("-t")
+        .arg("plain")
+        .arg(path)
+        .output()
+        .map_err(|e| format!("Failed to run 'pandoc'. Is it installed? Error: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "pandoc failed with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 pub fn main() -> iced::Result {
