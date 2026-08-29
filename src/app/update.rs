@@ -9,13 +9,42 @@ use iced::{Task, window};
 use super::{App, Message, Panel};
 use crate::config::{CHUNK_RANGE, FONT_RANGE, WPM_RANGE};
 use crate::document::{Document, Source, extract};
+use crate::ui::context;
 use crate::ui::skin::FocusMark;
 
 /// How much one keypress moves a slider-backed setting.
 const WPM_STEP: u32 = 25;
 const FONT_STEP: u32 = 4;
 
+/// Runs `message`, then keeps the context rail pointed at the reading position.
+///
+/// Wrapping the loop rather than touching every arm that can move the reader
+/// means a new kind of navigation cannot forget to bring the panel with it.
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
+    let was = app.reader.index;
+    let had_context = app.config.show_context;
+
+    let task = handle(app, message);
+
+    let now = app.reader.index;
+    let opened = !had_context && app.config.show_context;
+    let turned_page = context::page_of(was) != context::page_of(now);
+
+    // Follow while reading, and whenever the rail's content changes underneath
+    // the reader. Deliberately *not* on every paused step: when the reader is
+    // stopped the panel is something to browse and click, and yanking it back
+    // would undo the scrolling that got them there.
+    let follow =
+        app.config.show_context && (opened || turned_page || (was != now && app.reader.playing));
+
+    if follow && app.document.is_some() {
+        return Task::batch([task, context::follow(now, app.len())]);
+    }
+
+    task
+}
+
+fn handle(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::OpenDialog => return pick_file(),
 
@@ -85,6 +114,14 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Seek(index) => {
             let last = app.len().saturating_sub(1);
             app.reader.seek((index as usize).min(last));
+        }
+
+        Message::JumpTo(index) => {
+            let last = app.len().saturating_sub(1);
+            app.reader.seek(index.min(last));
+            // Jumping is a deliberate act of reading, not scrubbing, so the
+            // position is worth keeping if the app closes right after it.
+            remember(app);
         }
 
         Message::Tick(now) => {
@@ -283,17 +320,17 @@ fn key(app: &mut App, event: KeyEvent) -> Task<Message> {
     let shift = modifiers.shift();
 
     match key {
-        Key::Named(Named::Space) => return update(app, Message::TogglePlay),
+        Key::Named(Named::Space) => return handle(app, Message::TogglePlay),
         Key::Named(Named::ArrowLeft) if shift => {
-            return update(app, Message::ParagraphStep(-1));
+            return handle(app, Message::ParagraphStep(-1));
         }
         Key::Named(Named::ArrowRight) if shift => {
-            return update(app, Message::ParagraphStep(1));
+            return handle(app, Message::ParagraphStep(1));
         }
-        Key::Named(Named::ArrowLeft) => return update(app, Message::Step(-1)),
-        Key::Named(Named::ArrowRight) => return update(app, Message::Step(1)),
+        Key::Named(Named::ArrowLeft) => return handle(app, Message::Step(-1)),
+        Key::Named(Named::ArrowRight) => return handle(app, Message::Step(1)),
         Key::Named(Named::ArrowUp) => {
-            return update(app, Message::WpmChanged(app.config.wpm + WPM_STEP));
+            return handle(app, Message::WpmChanged(app.config.wpm + WPM_STEP));
         }
         Key::Named(Named::ArrowDown) => {
             return update(
@@ -301,17 +338,17 @@ fn key(app: &mut App, event: KeyEvent) -> Task<Message> {
                 Message::WpmChanged(app.config.wpm.saturating_sub(WPM_STEP)),
             );
         }
-        Key::Named(Named::Home) => return update(app, Message::Restart),
+        Key::Named(Named::Home) => return handle(app, Message::Restart),
         Key::Named(Named::End) => {
             let last = app.len().saturating_sub(1) as u32;
-            return update(app, Message::Seek(last));
+            return handle(app, Message::Seek(last));
         }
         Key::Named(Named::Escape) => {
             if app.zen {
-                return update(app, Message::LeaveZen);
+                return handle(app, Message::LeaveZen);
             }
             if app.error.is_some() {
-                return update(app, Message::DismissError);
+                return handle(app, Message::DismissError);
             }
             if app.panel.is_some() {
                 app.panel = None;
@@ -326,26 +363,26 @@ fn key(app: &mut App, event: KeyEvent) -> Task<Message> {
 
 fn character(app: &mut App, c: &str, command: bool) -> Task<Message> {
     match (c, command) {
-        ("o", _) => update(app, Message::OpenDialog),
-        ("v", true) => update(app, Message::PasteRequested),
-        ("r", _) => update(app, Message::Restart),
-        ("c", false) => update(app, Message::ToggleContext),
+        ("o", _) => handle(app, Message::OpenDialog),
+        ("v", true) => handle(app, Message::PasteRequested),
+        ("r", _) => handle(app, Message::Restart),
+        ("c", false) => handle(app, Message::ToggleContext),
         ("f", false) => {
             let marks = FocusMark::ALL;
             let at = marks.iter().position(|m| *m == app.config.focus_mark);
             let next = marks[(at.unwrap_or(0) + 1) % marks.len()];
-            update(app, Message::FocusMarkChanged(next))
+            handle(app, Message::FocusMarkChanged(next))
         }
-        (",", true) | ("s", false) => update(app, Message::TogglePanel(Panel::Settings)),
-        ("z", false) => update(app, Message::ToggleZen),
-        ("+", _) | ("=", _) => update(app, Message::FontChanged(app.config.font_size + FONT_STEP)),
+        (",", true) | ("s", false) => handle(app, Message::TogglePanel(Panel::Settings)),
+        ("z", false) => handle(app, Message::ToggleZen),
+        ("+", _) | ("=", _) => handle(app, Message::FontChanged(app.config.font_size + FONT_STEP)),
         ("-", _) => update(
             app,
             Message::FontChanged(app.config.font_size.saturating_sub(FONT_STEP)),
         ),
-        ("1", false) => update(app, Message::ChunkChanged(1)),
-        ("2", false) => update(app, Message::ChunkChanged(2)),
-        ("3", false) => update(app, Message::ChunkChanged(3)),
+        ("1", false) => handle(app, Message::ChunkChanged(1)),
+        ("2", false) => handle(app, Message::ChunkChanged(2)),
+        ("3", false) => handle(app, Message::ChunkChanged(3)),
         _ => Task::none(),
     }
 }
