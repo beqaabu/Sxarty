@@ -53,6 +53,7 @@ pub fn rail<'a>(app: &App, skin: Skin) -> Element<'a, Message> {
         .width(Length::Fixed(RAIL_WIDTH))
         .height(Fill)
         .style(style::bar(skin))
+        .clip(true)
         .into()
 }
 

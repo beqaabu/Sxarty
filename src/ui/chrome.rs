@@ -35,15 +35,21 @@ pub fn header<'a>(app: &App, skin: Skin) -> Element<'a, Message> {
 
     let mark = container(Space::new().width(7.0).height(7.0)).style(style::accent_block(skin, 1.0));
 
+    // The title takes the leftover width and is clipped, so a long file name
+    // cannot push the buttons off the edge of the window.
     let left = row![
         container(mark).padding([0, 2]),
         text("Sxarty").size(BODY).color(skin.dim),
         container(Space::new().width(1.0).height(14.0)).style(style::faint_block(skin)),
-        text(title)
-            .size(BODY)
-            .color(title_color)
-            .shaping(text::Shaping::Advanced)
-            .wrapping(text::Wrapping::None),
+        container(
+            text(title)
+                .size(BODY)
+                .color(title_color)
+                .shaping(text::Shaping::Advanced)
+                .wrapping(text::Wrapping::None),
+        )
+        .width(Fill)
+        .clip(true),
     ]
     .spacing(10)
     .align_y(iced::Center);
@@ -77,15 +83,11 @@ pub fn header<'a>(app: &App, skin: Skin) -> Element<'a, Message> {
     .spacing(4)
     .align_y(iced::Center);
 
-    container(
-        row![left, Space::new().width(Fill), actions]
-            .align_y(iced::Center)
-            .spacing(12),
-    )
-    .width(Fill)
-    .padding([10, 16])
-    .style(style::bar(skin))
-    .into()
+    container(row![left, actions].align_y(iced::Center).spacing(12))
+        .width(Fill)
+        .padding([10, 16])
+        .style(style::bar(skin))
+        .into()
 }
 
 fn tool<'a>(
@@ -220,6 +222,7 @@ pub fn panel<'a>(app: &App, skin: Skin, which: Panel) -> Element<'a, Message> {
         .width(Length::Fixed(PANEL_WIDTH))
         .height(Fill)
         .style(style::bar(skin))
+        .clip(true)
         .into()
 }
 
