@@ -49,6 +49,53 @@ pub fn for_text(text: &str) -> Font {
     }
 }
 
+/// The rendered width of `content`, in pixels, at `size`.
+///
+/// Shapes through the same font system the renderer draws with, so the answer
+/// matches what will actually appear. Used to scale a word down when it would
+/// otherwise overrun the reading area and draw over the side panels.
+pub fn text_width(content: &str, font: Font, size: f32) -> f32 {
+    use iced::advanced::graphics::text::{cosmic_text, font_system};
+
+    if content.is_empty() || size <= 0.0 {
+        return 0.0;
+    }
+
+    let family = match font.family {
+        iced::font::Family::Name(name) => cosmic_text::Family::Name(name),
+        iced::font::Family::Serif => cosmic_text::Family::Serif,
+        iced::font::Family::Monospace => cosmic_text::Family::Monospace,
+        iced::font::Family::Cursive => cosmic_text::Family::Cursive,
+        iced::font::Family::Fantasy => cosmic_text::Family::Fantasy,
+        iced::font::Family::SansSerif => cosmic_text::Family::SansSerif,
+    };
+
+    // Safe to take the write lock here: iced takes the same one when it lays
+    // text out, and `Responsive` calls its closure at the very top of its own
+    // layout, before any child has touched the font system.
+    let Ok(mut system) = font_system().write() else {
+        return 0.0;
+    };
+    let raw = system.raw();
+
+    let mut buffer = cosmic_text::Buffer::new(raw, cosmic_text::Metrics::new(size, size * 1.3));
+    // Unbounded, so a long word measures its true width instead of wrapping.
+    buffer.set_size(raw, None, None);
+    buffer.set_text(
+        raw,
+        content,
+        &cosmic_text::Attrs::new().family(family),
+        cosmic_text::Shaping::Advanced,
+        None,
+    );
+    buffer.shape_until_scroll(raw, false);
+
+    buffer
+        .layout_runs()
+        .map(|run| run.line_w)
+        .fold(0.0, f32::max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,6 +109,31 @@ mod tests {
             for_text("Rustaveli \u{10E8}\u{10DD}\u{10D7}\u{10D0}"),
             GEORGIAN
         );
+    }
+
+    #[test]
+    fn measured_width_grows_with_the_text_and_the_size() {
+        font_setup();
+
+        let narrow = text_width("i", UI, 64.0);
+        let wide = text_width("wwwww", UI, 64.0);
+        assert!(wide > narrow * 3.0, "{wide} vs {narrow}");
+
+        // Widths scale linearly with size, which is what lets the fitting code
+        // solve for a size in one step instead of searching.
+        let small = text_width("hello", UI, 20.0);
+        let large = text_width("hello", UI, 40.0);
+        assert!((large / small - 2.0).abs() < 0.05, "{large} / {small}");
+
+        assert_eq!(text_width("", UI, 64.0), 0.0);
+    }
+
+    fn font_setup() {
+        use iced::advanced::graphics::text::font_system;
+        font_system()
+            .write()
+            .expect("font system")
+            .load_font(GEORGIAN_REGULAR.into());
     }
 
     /// The regression test for the macOS bug.

@@ -56,32 +56,41 @@ const DASHES: &[char] = &['\u{2014}', '\u{2013}', '-'];
 /// Opening punctuation that belongs to the next token.
 const OPENERS: &[char] = &['(', '[', '{', '\u{201C}', '\u{2018}', '\u{AB}'];
 
+/// Upper bound on a single token's hold time, as a multiple of the base word
+/// duration. Without it a sentence that also ends a paragraph stacks every
+/// bonus at once and reads as a stall rather than a breath.
+const MAX_WEIGHT: f32 = 2.0;
+
 /// How long to hold a token, relative to the base word duration.
 ///
 /// Uniform pacing is the main reason RSVP feels exhausting: the reader gets no
 /// time to close a clause. Weighting by punctuation and word length buys that
 /// time back without lowering the average WPM much.
+///
+/// The numbers are deliberately restrained. A pause has to be long enough to
+/// register as rhythm and short enough not to register as a stutter, and
+/// doubling the time on every full stop lands well the wrong side of that.
 fn weight_of(word: &str, chars: usize, ends_paragraph: bool) -> f32 {
     let mut weight = 1.0;
 
     // Long words need proportionally more time, but with a ceiling.
     if chars > 8 {
-        weight += (((chars - 8) as f32) * 0.06).min(0.6);
+        weight += (((chars - 8) as f32) * 0.05).min(0.45);
     }
 
     // Look past trailing quotes/brackets for the real terminator.
     let terminator = word.chars().rev().find(|c| !CLOSERS.contains(c));
     match terminator {
-        Some('.') | Some('!') | Some('?') | Some('\u{2026}') => weight += 1.0,
-        Some(',') | Some(';') | Some(':') | Some('\u{2014}') | Some('\u{2013}') => weight += 0.5,
+        Some('.') | Some('!') | Some('?') | Some('\u{2026}') => weight += 0.6,
+        Some(',') | Some(';') | Some(':') | Some('\u{2014}') | Some('\u{2013}') => weight += 0.3,
         _ => {}
     }
 
     if ends_paragraph {
-        weight += 1.2;
+        weight += 0.6;
     }
 
-    weight
+    weight.min(MAX_WEIGHT)
 }
 
 fn push_token(out: &mut Vec<Token>, text: String, paragraph: usize) {
@@ -237,6 +246,14 @@ mod tests {
     fn sentence_ends_hold_longer_than_plain_words() {
         let (tokens, _) = tokenize("plain end. more here\n\ntail");
         assert!(tokens[1].weight > tokens[0].weight);
+    }
+
+    #[test]
+    fn no_single_token_stalls_the_reader() {
+        // A long word that ends both a sentence and a paragraph stacks every
+        // bonus there is, and must still stay inside the cap.
+        let (tokens, _) = tokenize("extraordinarily.");
+        assert!(tokens[0].weight <= MAX_WEIGHT + f32::EPSILON);
     }
 
     #[test]

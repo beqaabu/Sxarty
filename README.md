@@ -34,7 +34,10 @@ in settings offers a coloured letter, a rule underneath, or nothing at all.
 Uniform timing is the other thing that makes RSVP tiring: you get no time to
 close a clause before the next one starts. Smart pacing (on by default) holds
 longer on commas, sentence endings, paragraph breaks and long words, so the
-rhythm follows the prose rather than a metronome.
+rhythm follows the prose rather than a metronome. At 300 wpm an ordinary word
+gets 200ms, a word ending in a comma 260ms and one ending a sentence 320ms; no
+single word is ever held longer than twice the base, so a pause reads as a
+breath rather than a stall. Turn it off in settings for a flat pace.
 
 ## Install
 
