@@ -1,0 +1,45 @@
+# Flatpak manifest. Build with:
+#   flatpak-builder --user --install --force-clean build packaging/linux/io.github.beqaabu.sxarty.yml
+#
+# Flathub builds offline, so a submission needs a generated sources file for the
+# crate dependencies (flatpak-cargo-generator.py from flatpak-builder-tools).
+app-id: io.github.beqaabu.sxarty
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: sxarty
+
+finish-args:
+  # A wgpu application needs the GPU and a display; it needs nothing else.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Read-only access to the user's documents, so the file picker can reach them.
+  - --filesystem=home:ro
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/sxarty/cargo
+
+modules:
+  - name: sxarty
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --verbose
+      - install -Dm755 target/release/sxarty /app/bin/sxarty
+      - install -Dm644 packaging/linux/io.github.beqaabu.sxarty.desktop
+          /app/share/applications/io.github.beqaabu.sxarty.desktop
+      - install -Dm644 packaging/linux/io.github.beqaabu.sxarty.metainfo.xml
+          /app/share/metainfo/io.github.beqaabu.sxarty.metainfo.xml
+      - for size in 16 24 32 48 64 128 256 512; do
+          install -Dm644 "assets/icon/sxarty-$size.png"
+          "/app/share/icons/hicolor/${size}x${size}/apps/io.github.beqaabu.sxarty.png";
+        done
+    sources:
+      - type: dir
+        path: ../..

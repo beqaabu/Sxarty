@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Sxarty
+GenericName=Speed Reader
+Comment=Read one word at a time, without losing your place
+Exec=sxarty %f
+Icon=io.github.beqaabu.sxarty
+Terminal=false
+Categories=Office;Viewer;Utility;
+Keywords=reading;rsvp;speed;focus;ebook;epub;pdf;
+MimeType=text/plain;text/markdown;application/pdf;application/epub+zip;application/vnd.openxmlformats-officedocument.wordprocessingml.document;
+# Matches the toolkit's window class so the shell pairs the window with this
+# launcher instead of showing a second, iconless entry.
+StartupWMClass=sxarty
+StartupNotify=true

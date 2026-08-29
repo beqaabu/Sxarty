@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The hardened runtime is required for notarisation. Sxarty needs no
+       exceptions beyond reading files the user picked: no JIT, no camera, no
+       network. Keeping this list empty is the point. -->
+  <key>com.apple.security.cs.allow-jit</key>                        <false/>
+  <key>com.apple.security.cs.disable-library-validation</key>       <false/>
+</dict>
+</plist>
