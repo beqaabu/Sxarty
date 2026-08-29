@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Sxarty</title>
+  <g>
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="#0B0E14"/>
+  <rect x="498" y="260" width="28" height="74" rx="8" fill="#FF5C5C" opacity="0.45"/>
+  <rect x="150" y="446" width="302" height="132" rx="66" fill="#E4E8F0"/>
+  <rect x="470" y="394" width="84" height="236" rx="12" fill="#FF5C5C"/>
+  <rect x="572" y="446" width="330" height="132" rx="66" fill="#E4E8F0"/>
+  <rect x="498" y="690" width="28" height="74" rx="8" fill="#FF5C5C" opacity="0.45"/>
+  </g>
+</svg>

@@ -10,6 +10,8 @@ readme = "README.md"
 keywords = ["speed-reading", "rsvp", "reader", "iced"]
 categories = ["gui", "text-processing"]
 
+build = "build.rs"
+
 [[bin]]
 name = "sxarty"
 path = "src/main.rs"
@@ -28,6 +30,9 @@ pdf-extract = { version = "0.12", optional = true }
 epub = { version = "2.1", optional = true }
 zip = { version = "8", optional = true, default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.42", optional = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [features]
 default = ["pdf", "docx", "epub"]
