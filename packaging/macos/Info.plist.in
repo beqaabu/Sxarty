@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>                  <string>Sxarty</string>
+  <key>CFBundleDisplayName</key>           <string>Sxarty</string>
+  <key>CFBundleIdentifier</key>            <string>@BUNDLE_ID@</string>
+  <key>CFBundleExecutable</key>            <string>sxarty</string>
+  <key>CFBundleIconFile</key>              <string>sxarty</string>
+  <key>CFBundlePackageType</key>           <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+  <key>CFBundleShortVersionString</key>    <string>@VERSION@</string>
+  <key>CFBundleVersion</key>               <string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key>        <string>11.0</string>
+  <key>LSApplicationCategoryType</key>     <string>public.app-category.productivity</string>
+  <key>NSHighResolutionCapable</key>       <true/>
+  <key>NSHumanReadableCopyright</key>      <string>MIT licensed. Copyright © 2026 Beqa Abuladze.</string>
+
+  <!-- CFBundleDocumentTypes is deliberately absent.
+       Declaring them would put Sxarty in Finder's "Open With" menu, but the
+       file would never arrive: macOS delivers opened documents as a
+       kAEOpenDocuments Apple Event, and winit 0.30 (under iced) neither
+       handles it nor exposes its NSApplicationDelegate for us to handle it on.
+       Registering an association that silently opens an empty window is worse
+       than not registering one. Windows and Linux pass the path in argv, so
+       associations are wired up there.
+       Drag-and-drop onto the window works everywhere, as does `sxarty FILE`.
+       Revisit when winit surfaces application:openURLs:. -->
+
+</dict>
+</plist>

@@ -1,0 +1,193 @@
+name: Release
+
+# Tag a version to publish installers for all three platforms:
+#   git tag v0.2.0 && git push origin v0.2.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, without the leading v
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── macOS: universal .app inside a DMG ──────────────────────────────────
+  macos:
+    runs-on: macos-14
+    env:
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Import the signing certificate
+        # Skipped automatically on a fork or before the secrets exist; the
+        # script then produces an unsigned build instead of failing.
+        if: env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Store notarisation credentials
+        if: env.MACOS_NOTARY_KEY != ''
+        env:
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+        run: |
+          echo "$MACOS_NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          xcrun notarytool store-credentials sxarty-notary \
+            --key "$RUNNER_TEMP/key.p8" \
+            --key-id "$MACOS_NOTARY_KEY_ID" \
+            --issuer "$MACOS_NOTARY_ISSUER"
+          rm "$RUNNER_TEMP/key.p8"
+          echo "MACOS_NOTARY_PROFILE=sxarty-notary" >> "$GITHUB_ENV"
+
+      - name: Bundle
+        run: scripts/bundle-macos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: target/dist/*.dmg
+          if-no-files-found: error
+
+  # ── Linux: tarball, AppImage, .deb ──────────────────────────────────────
+  linux:
+    # Deliberately not ubuntu-latest. The oldest supported runner gives the
+    # oldest glibc, and a binary built against a new glibc will not start on a
+    # distribution older than the builder.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev \
+            pkg-config desktop-file-utils appstream
+
+      - name: Validate the desktop and AppStream metadata
+        run: |
+          desktop-file-validate packaging/linux/*.desktop
+          appstreamcli validate --no-net packaging/linux/*.metainfo.xml || true
+
+      - name: Bundle
+        # appimagetool needs FUSE, which the runners do not provide; this makes
+        # it unpack itself instead.
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: scripts/bundle-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/dist/*.AppImage
+            target/dist/*.deb
+            target/dist/*.tar.gz
+          if-no-files-found: error
+
+  # ── Windows: signed exe and an NSIS installer ───────────────────────────
+  windows:
+    runs-on: windows-2022
+    env:
+      WINDOWS_CERT: ${{ secrets.WINDOWS_CERT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "value=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Build the installer
+        shell: bash
+        run: |
+          mkdir -p target/dist
+          "/c/Program Files (x86)/NSIS/makensis.exe" \
+            -DVERSION=${{ steps.version.outputs.value }} \
+            packaging/windows/sxarty.nsi
+
+      - name: Sign
+        if: env.WINDOWS_CERT != ''
+        env:
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERT)
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, $bytes)
+          $tool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+                  Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+          & $tool.FullName sign /fd SHA256 /f $pfx /p $env:WINDOWS_CERT_PASSWORD `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            target\release\sxarty.exe target\dist\*.exe
+          Remove-Item $pfx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            target/dist/*-setup.exe
+            target/release/sxarty.exe
+          if-no-files-found: error
+
+  # ── Publish ─────────────────────────────────────────────────────────────
+  release:
+    needs: [macos, linux, windows]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          find . -type f -exec sha256sum {} + | sed 's|\./[a-z]*/||' > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Sxarty ${{ github.ref_name }}" \
+            --generate-notes \
+            $(find artifacts -type f)

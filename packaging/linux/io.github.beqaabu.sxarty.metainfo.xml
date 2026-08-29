@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.beqaabu.sxarty</id>
+  <launchable type="desktop-id">io.github.beqaabu.sxarty.desktop</launchable>
+
+  <name>Sxarty</name>
+  <summary>Read one word at a time, without losing your place</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <developer id="io.github.beqaabu">
+    <name>Beqa Abuladze</name>
+  </developer>
+
+  <description>
+    <p>
+      Sxarty shows a document one word at a time, held at the point your eye
+      already wants to look. Removing the jump between words removes most of the
+      work of reading a line.
+    </p>
+    <p>
+      Unlike most readers of this kind, you can go back. A context panel shows
+      the text around the word you are on, and clicking any word in it moves the
+      reader there, so half-catching a clause is recoverable instead of gone.
+    </p>
+    <p>Reads plain text, Markdown, PDF, Word and EPUB files.</p>
+  </description>
+
+  <categories>
+    <category>Office</category>
+    <category>Viewer</category>
+  </categories>
+
+  <keywords>
+    <keyword>reading</keyword>
+    <keyword>RSVP</keyword>
+    <keyword>speed reading</keyword>
+    <keyword>focus</keyword>
+    <keyword>ebook</keyword>
+  </keywords>
+
+  <url type="homepage">https://github.com/beqaabu/Sxarty</url>
+  <url type="bugtracker">https://github.com/beqaabu/Sxarty/issues</url>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.2.0" date="2026-08-29">
+      <description>
+        <p>Rebuilt interface, a clickable context panel, and correct Georgian rendering.</p>
+      </description>
+    </release>
+  </releases>
+</component>
