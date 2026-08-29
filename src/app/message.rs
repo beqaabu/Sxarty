@@ -33,6 +33,8 @@ pub enum Message {
     ParagraphStep(i32),
     Restart,
     Seek(u32),
+    /// Jump straight to a token, from a click in the context panel.
+    JumpTo(usize),
     Tick(Instant),
 
     // Settings

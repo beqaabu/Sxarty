@@ -95,6 +95,12 @@ coming, and you lose your place on the page - and this puts it back. It pages
 rather than scrolls, so the text only reflows when you cross a page boundary
 instead of shuffling 300 times a minute.
 
+**Every word in it is a jump target.** Click one and the reader moves there,
+which is the answer to the thing RSVP is worst at: half-catching a clause and
+wanting to go back to it. The panel follows along while you are reading so the
+current word is always on screen, and leaves your scrolling alone while you are
+paused, so you can look around and click without it snapping back.
+
 **Settings** (right) holds speed, font size, chunk size, smart pacing, the focus
 mark, four themes and five accent colours. Everything is saved as you change it.
 
